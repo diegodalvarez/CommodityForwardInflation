@@ -1,2 +1,11 @@
 # Commodity Forward Inflation
 This repo examines a series of strategies based on trading energy futures based on inflation measurements, specifically 5y5y forward inflation. The motivation for this project is based on the modelled relationship between Crude prices and US 5y5y forward inflation from *[The FRED Blog - Oil prices and expected inflation](https://fredblog.stlouisfed.org/2020/04/oil-prices-and-expected-inflation/?utm_source=series_page&utm_medium=related_content&utm_term=related_resources&utm_campaign=fredblog)*. ```CL``` ```CO``` ```HO``` ```NG``` ```QS``` ```XB```
+
+This repo contains various strategies trading energy-based futures based on inflation the following strategies are implemented. 
+
+Combined portfolio is 1.4 sharpe which consists of the following
+
+1. 5y5y β-scaled Forward Inflation (~0.8 sharpe) - this model trades energy futures based on the prior 5y5y forward inflation scaled by its β
+2. Cross-Section Residual Model (~2 sharpe) - this model trades energy futures cross-sectionally based on the 5y5y forward inflation OLS model
+3. Trading based on Deciles of OLS Residuals (~0.8 sharpe) - this model trades the deciles of the residual of the regression 
+4. Trading based on Deciles of 5y5y Forward Inflation (~1.3 sharpe) - this model trades based on the deciles of the historical z-score of the 5y5y Forward Inflation
