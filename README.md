@@ -9,3 +9,8 @@ Combined portfolio is 1.4 sharpe which consists of the following
 2. Cross-Section Residual Model (~2 sharpe) - this model trades energy futures cross-sectionally based on the 5y5y forward inflation OLS model
 3. Trading based on Deciles of OLS Residuals (~0.8 sharpe) - this model trades the deciles of the residual of the regression 
 4. Trading based on Deciles of 5y5y Forward Inflation (~1.3 sharpe) - this model trades based on the deciles of the historical z-score of the 5y5y Forward Inflation
+
+## Writeup
+|         | PDF          |
+|---------|---------------------|
+| Technical writeup containing methodology & results | <a href="CommodityForwardInflation.pdf">![PDF](https://img.icons8.com/ios-filled/50/000000/pdf.png)</a> |
