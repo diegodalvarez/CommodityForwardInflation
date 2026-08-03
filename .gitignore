@@ -5,3 +5,5 @@
 /data
 /notebooks_old
 /OldLatex
+/NewLatex
+*.md

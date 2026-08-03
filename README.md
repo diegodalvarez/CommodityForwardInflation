@@ -1,5 +1,5 @@
 # Commodity Forward Inflation
-This repo examines a series of strategies based on trading energy futures based on inflation measurements, specifically 5y5y forward inflation. The motivation for this project is based on the modelled relationship between Crude prices and US 5y5y forward inflation from *[The FRED Blog - Oil prices and expected inflation](https://fredblog.stlouisfed.org/2020/04/oil-prices-and-expected-inflation/?utm_source=series_page&utm_medium=related_content&utm_term=related_resources&utm_campaign=fredblog)*. ```CL``` ```CO``` ```HO``` ```NG``` ```QS``` ```XB```
+The overall goal of this repo is to examine energy-based strategies in the futures space using different inflation measurements starting with the 5y5y forward inflation. The motivation for this project is based on the modelled relationship between Crude prices and US 5y5y forward inflation from *[The FRED Blog - Oil prices and expected inflation](https://fredblog.stlouisfed.org/2020/04/oil-prices-and-expected-inflation/?utm_source=series_page&utm_medium=related_content&utm_term=related_resources&utm_campaign=fredblog)*. ```CL``` ```CO``` ```HO``` ```NG``` ```QS``` ```XB```
 
 This repo contains various strategies trading energy-based futures based on inflation the following strategies are implemented. 
 

@@ -142,9 +142,6 @@ class SignalStrategies:
             if verbose: print("Already have data collected")
             return None
         
-        display(self._get_factor())
-        return-1
-        
         df_zscore = (self._get_factor().pivot(
             index = "date", columns = ["country", "group"], values = "value").
             apply(
