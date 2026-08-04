@@ -19,12 +19,21 @@ class PrepData:
         self.path      = os.getcwd()
         self.root_path = os.path.abspath(os.path.join(self.path, ".."))
         self.data_path = os.path.join(self.root_path, "data")
+        self.px_path   = os.path.join(self.data_path, "PX")
+        self.inf_path  = os.path.join(self.data_path, "InflationMeasures")
         
         self.forward_tickers  = ["FWISBP55", "FWISUS55"]
         self.surprise_tickers = ["BCMPGBIF", "BCMPUSIF"]
-        self.energy_tickers   = ["CL", "CO", "HO", "NG", "QS", "XB"]
+        #self.energy_tickers   = ["CL", "CO", "HO", "NG", "QS", "XB"]
         
-        if os.path.exists(self.data_path) == False: os.makedirs(self.data_path)
+        if not os.path.exists(self.data_path): 
+            os.makedirs(self.data_path)
+            
+        if not os.path.exists(self.px_path):
+            os.makedirs(self.px_path)
+            
+        if not os.path.exists(self.inf_path):
+            os.makedirs(self.inf_path)
         
         #self.fut_path = r"A:\BlpData\BBGFutPX\1"
         self.fut_path = r"A:\2025Backup\BBGFuturesManager_backup\data\PXFront"
@@ -32,18 +41,26 @@ class PrepData:
         
     def _get_fut_data(self, verbose: bool = True) -> None: 
         
-        out_path = os.path.join(self.data_path, "FutPX.parquet")
+        out_path = os.path.join(self.px_path, "FutPX.parquet")
+    
         if verbose:
             print("Getting Futures PX data")
             
         if os.path.exists(out_path):
             if verbose:
-                print("Already Have Futures PX Data")
+                print("Already Have Futures PX Data\n")
             return None
+        
+        tick_path = os.path.join(self.data_path, "InflationTickerGuide.xlsx")
+        tickers   = (pd
+                .read_excel(io = tick_path, sheet_name = "FutGuide")
+                .assign(ticker = lambda x: x.Ticker.str.split("1").str[0])
+                .ticker
+                .to_list())
         
         fut_paths = [
             os.path.join(self.fut_path, ticker + ".parquet")
-            for ticker in self.energy_tickers]
+            for ticker in tickers]
         
         df_px = (pd.read_parquet(
             path = fut_paths, engine = "pyarrow").
@@ -56,18 +73,24 @@ class PrepData:
         
     def _get_forward_inflation(self, verbose: bool = True) -> None: 
         
-        out_path = os.path.join(self.data_path, "InflationForward.parquet")
+        out_path = os.path.join(self.inf_path, "InflationForward.parquet")
         if verbose:
             print("Getting 5y5y Forward Inflation data")
             
         if os.path.exists(out_path):
             if verbose:
-                print("Already Have inflation data")
+                print("Already Have inflation data\n")
             return None
         
-        paths    = [os.path.join(
-            self.bbg_path, ticker + ".parquet")
-            for ticker in self.forward_tickers]
+        tick_path = os.path.join(self.data_path, "InflationTickerGuide.xlsx")
+        tickers   = (pd
+                .read_excel(io = tick_path, sheet_name = "InflationMeasures")
+                .loc[lambda x: x.Group == "Forward"]
+                .assign(ticker = lambda x: x.Name.str.split(" ").str[0])
+                .ticker
+                .to_list())
+        
+        paths = [os.path.join(self.bbg_path, ticker + ".parquet") for ticker in tickers]
         
         df_out = (pd.read_parquet(
             path = paths, engine = "pyarrow").
@@ -81,18 +104,24 @@ class PrepData:
         
     def _get_inflation_surprise(self, verbose: bool = True) -> None: 
         
-        out_path = os.path.join(self.data_path, "InflationSurprise.parquet")
+        out_path = os.path.join(self.inf_path, "InflationSurprise.parquet")
         if verbose:
             print("Getting Inflation Surprise Data")
         
         if os.path.exists(out_path):
             if verbose:
-                print("Already Have Inflation Surprise Data")
+                print("Already Have Inflation Surprise Data\n")
             return None
         
-        paths    = [os.path.join(
-            self.bbg_path, ticker + ".parquet")
-            for ticker in self.surprise_tickers]
+        tick_path = os.path.join(self.data_path, "InflationTickerGuide.xlsx")
+        tickers   = (pd
+                .read_excel(io = tick_path, sheet_name = "InflationMeasures")
+                .loc[lambda x: x.Group == "InflationSurprise"]
+                .assign(ticker = lambda x: x.Name.str.split(" ").str[0])
+                .ticker
+                .to_list())
+        
+        paths = [os.path.join(self.bbg_path, ticker + ".parquet") for ticker in tickers]
         
         df_out = (pd.read_parquet(
             path = paths, engine = "pyarrow").
@@ -103,6 +132,45 @@ class PrepData:
             print("Saving Inflation Surprise Data")
             
         df_out.to_parquet(path = out_path, engine = "pyarrow")
+        
+    def _combine_fred_data(self, verbose: bool = True) -> None: 
+        
+        if verbose: print("Getting combined FRED data")
+        
+        fred_path = os.path.join(self.data_path, "FRED")
+        out_path  = os.path.join(fred_path, "CombinedData.parquet")
+        
+        if os.path.exists(out_path):
+            if verbose: print("Already have data\n\n")
+            return None
+        
+        files     = [file for file in os.listdir(fred_path) if file.split(".")[-1] == "csv"]
+        tick_path = os.path.join(self.data_path, "InflationTickerGuide.xlsx")
+        df_lists  = []
+        
+        ticker_dict = (pd
+                .read_excel(io = tick_path, sheet_name = "FRED")
+                .set_index("ticker")
+                .group
+                .to_dict())
+        
+        for file in files: 
+            
+            tmp_path = os.path.join(fred_path, file)
+            df_add   = (pd
+                    .read_csv(filepath_or_buffer = tmp_path)
+                    .rename(columns = {"observation_date": "date"})
+                    .assign(date = lambda x: pd.to_datetime(x.date).dt.date)
+                    .melt(id_vars = "date", var_name = "ticker"))
+            
+            df_lists.append(df_add)
+        
+        df_out = (pd
+                .concat(df_lists)
+                .assign(group = lambda x: x.ticker.map(ticker_dict)))
+        
+        if verbose: print("Saving data\n")    
+        df_out.to_parquet(path = out_path, engine = "pyarrow")
 
 def main() -> None: 
         
@@ -110,5 +178,6 @@ def main() -> None:
     data_prep._get_fut_data()
     data_prep._get_forward_inflation()
     data_prep._get_inflation_surprise()
+    data_prep._combine_fred_data()
     
 if __name__ == "__main__": main()
