@@ -135,8 +135,9 @@ class SignalStrategies:
         df_out.to_parquet(path = out_path, engine = "pyarrow")
         
     def _get_zscore(self, window: int = 30, verbose: bool = True) -> None: 
+        
         if verbose: print("Getting Z-Score Values")
-        out_path = os.path.join(self.data_path, "ZScore.parquet")
+        out_path = os.path.join(self.data_path, "Signal", "ZScore.parquet")
         
         if os.path.exists(out_path):
             if verbose: print("Already have data collected")

@@ -19,7 +19,7 @@ class PrepData:
         self.path      = os.getcwd()
         self.root_path = os.path.abspath(os.path.join(self.path, ".."))
         self.data_path = os.path.join(self.root_path, "data")
-        self.px_path   = os.path.join(self.data_path, "PX")
+        self.px_path   = os.path.join(self.data_path, "FutData")
         self.inf_path  = os.path.join(self.data_path, "InflationMeasures")
         
         self.forward_tickers  = ["FWISBP55", "FWISUS55"]
@@ -38,6 +38,9 @@ class PrepData:
         #self.fut_path = r"A:\BlpData\BBGFutPX\1"
         self.fut_path = r"A:\2025Backup\BBGFuturesManager_backup\data\PXFront"
         self.bbg_path = r"A:\BBGData\data"
+        
+        self.vol_target = 0.1
+        self.vol_window = 100
         
     def _get_fut_data(self, verbose: bool = True) -> None: 
         
@@ -171,6 +174,43 @@ class PrepData:
         
         if verbose: print("Saving data\n")    
         df_out.to_parquet(path = out_path, engine = "pyarrow")
+        
+    def _get_vol_target(self, df: pd.DataFrame, vol_target: float = 0.1, vol_window: int = 100) -> pd.DataFrame: 
+        
+        df_out = (df
+                .sort_values("date")
+                .assign(
+                    weight     = lambda x: vol_target / (x.rtn.ewm(span = vol_window, adjust = False).std()),
+                    lag_weight = lambda x: x.weight.shift()))
+        
+        return df_out
+        
+    def vol_target_rtn(self, verbose: bool = True) -> None: 
+        
+        if verbose: 
+            print("Getting volatility targeted returns")
+        
+        out_path = os.path.join(self.data_path, "FutData", "VolHedgedRtn.parquet")
+        
+        if os.path.exists(out_path):
+            if verbose: print("Already have data\n")
+            return None
+        
+        in_path = os.path.join(self.data_path, "FutData", "FutPX.parquet")
+        df_out  = (pd
+                .read_parquet(path = in_path, engine = "pyarrow")
+                .set_index("date")
+                .groupby("security")
+                .apply(lambda x: x.sort_index().PX_LAST.pct_change())
+                .reset_index()
+                .rename(columns = {"PX_LAST": "rtn"})
+                .set_index("date")
+                .groupby("security")
+                .apply(self._get_vol_target, self.vol_target, self.vol_window)
+                .reset_index())
+        
+        if verbose: print("Saving data\n")
+        df_out.to_parquet(path = out_path, engine = "pyarrow")
 
 def main() -> None: 
         
@@ -179,5 +219,6 @@ def main() -> None:
     data_prep._get_forward_inflation()
     data_prep._get_inflation_surprise()
     data_prep._combine_fred_data()
+    data_prep.vol_target_rtn()
     
 if __name__ == "__main__": main()
