@@ -324,7 +324,11 @@ class SignalStrategies:
         if verbose: print("Saving Results")
         df_out.to_parquet(path = out_path, engine = "pyarrow")
         
-signal_strategies = SignalStrategies()
-#signal_strategies._get_ols_regression()
-signal_strategies._get_zscore()
-#signal_strategies._optimize_zscore()
+def main() -> None: 
+        
+    signal_strategies = SignalStrategies()
+    signal_strategies._get_ols_regression()
+    #signal_strategies._get_zscore()
+    #signal_strategies._optimize_zscore()
+    
+if __name__ == "__main__": main()
