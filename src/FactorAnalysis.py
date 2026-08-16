@@ -276,6 +276,79 @@ class FactorModel:
         
         return df_out
     
+    def inflation_signal_factor(self, verbose: bool = True) -> None: 
+        
+        if verbose: print("Getting Inflation Signal Factor Model")
+        
+        vol_path = os.path.join(self.data_path, "FutData", "VolHedgedRtn.parquet")
+        inf_path = os.path.join(self.data_path, "Signals", "ZScore.parquet")
+        out_path = os.path.join(self.data_path, "FactorData", "InfSignalModels.pkl")
+        
+        if os.path.exists(out_path):
+            if verbose: print("Already have data\n")
+            return None
+        
+        df_vol_rtn = (pd
+                .read_parquet(path = vol_path, engine = "pyarrow")
+                .melt(
+                    id_vars    = ["date", "security", "rtn"],
+                    var_name   = "hedge_type",
+                    value_name = "hedge_val")
+                .dropna()
+                .assign(vol_rtn = lambda x: x.rtn * x.hedge_val)
+                .drop(columns = ["rtn"]) 
+                .assign(hedge_type = lambda x: np.where(x.hedge_type == "weight", "perfect", "lagged"))
+                .rename(columns = {"security": "fut_ticker"})
+                .drop(columns = ["hedge_val"]))
+        
+        df_raw_inflation = (pd
+                .read_parquet(path = inf_path, engine = "pyarrow"))
+        
+        df_lag_inflation = (df_raw_inflation
+                .pivot(index = "date", columns = ["country", "group"], values = "z_score")
+                .shift()
+                .reset_index()
+                .melt(id_vars = [("date", "")], value_name = "z_score")
+                .rename(columns = {("date", ""): "date"})
+                .assign(signal_type = "lag_signal"))
+        
+        df_signal = (pd
+                     .concat([
+                        df_raw_inflation.assign(signal_type = "signal"),
+                        df_lag_inflation])
+                     .rename(columns = {"value": "inf_signal"}))
+        
+        df_combined = (df_vol_rtn
+                .assign(hedge_type = lambda x: x.hedge_type + "_hedge")
+                .merge(right = df_signal, how = "inner", on = ["date"])
+                .assign(name = lambda x: 
+                        x.fut_ticker + " " + 
+                        x.hedge_type + " " + 
+                        x.country + " " +
+                        x.group + " " + 
+                        x.signal_type)
+                .dropna())
+            
+        names  = df_combined.name.drop_duplicates().sort_values().to_list()
+        models = {}
+        
+        for name in names: 
+            
+            df_tmp = (df_combined
+                    .loc[lambda x: x.name == name]
+                    .set_index("date"))
+            
+            model = (sm
+                    .OLS(
+                        endog = df_tmp.vol_rtn,
+                        exog  = sm.add_constant(df_tmp.z_score))
+                    .fit())
+            
+            models[name] = model
+        
+        if verbose: print("Saving data\n")
+        with open(out_path, "wb") as f: pickle.dump(models, f)
+    
     def inflation_measure_factor(self, verbose: bool = True) -> None:
         
         if verbose: print("Getting Inflation Signal Factor")
@@ -339,7 +412,7 @@ class FactorModel:
         if verbose: print("Saving data\n")
         with open(out_path, "wb") as f: pickle.dump(models, f)
         
-    def get_inflation_measure_model_param(self, models: dict, model_names: list) -> pd.DataFrame: 
+    def get_spef_model_params(self, models: dict, model_names: list) -> pd.DataFrame: 
         
         df_lists = []
         for model_name in model_names: 
@@ -371,12 +444,75 @@ class FactorModel:
         df_params = pd.concat(df_lists)
         
         return df_params
+    
+    def raw_zscore_port_trend_exposure(self, verbose: bool = True) -> None: 
+        
+        if verbose: 
+            print("Getting Raw Z-Score Port Trend Exposure")
+        
+        out_path = os.path.join(self.fact_path, "RawZScorePortTrendExposure.pkl")
+        
+        if os.path.exists(out_path):
+            if verbose: print("Already have data\n")
+            return None
+        
+        rtn_path = os.path.join(self.data_path, "Backtests", "SignalBacktest.parquet")
+        df_port  = (pd
+                .read_parquet(path = rtn_path, engine = "pyarrow")
+                .drop(columns = ["security"])
+                .groupby(["date", "target", "inf_name", "country"])
+                .agg("mean")
+                .reset_index())
+        
+        ticker_path = os.path.join(self.data_path, "BenchmarkTickerGuide.xlsx")
+        df_ticker   = (pd
+                .read_excel(io = ticker_path, sheet_name = "Sheet1")
+                .loc[lambda x: x.Group == "Trend Following"])
+        
+        trend_path = os.path.join(self.data_path, "Benchmarks", "TrendPX.parquet")
+        df_trend   = (pd
+                .read_parquet(path = trend_path, engine = "pyarrow")
+                .drop_duplicates()
+                .pivot(index = "date", columns = "security", values = "PX_LAST")
+                .pct_change()
+                .reset_index()
+                .melt(id_vars = "date", var_name = "Ticker", value_name = "trend_rtn")
+                .dropna()
+                .merge(right = df_ticker, how = "inner", on = ["Ticker"])
+                .drop(columns = ["Ticker"]))
+        
+        df_combined = (df_port
+                .merge(right = df_trend, how = "inner", on = ["date"])
+                .assign(group = lambda x: x.target + "+" + x.inf_name + "+" + x.country + "+" + x.Name))
+        
+        groups = df_combined.group.drop_duplicates().sort_values().to_list()
+        models = {}
+        
+        for group in groups: 
+            
+            df_tmp = (df_combined
+                    .loc[lambda x: x.group == group]
+                    .set_index("date")
+                    [["vol_rtn", "trend_rtn"]])
+            
+            model = (sm
+                    .OLS(
+                        endog = df_tmp.vol_rtn,
+                        exog  = sm.add_constant(df_tmp.trend_rtn))
+                    .fit())
+            
+            models[group] = model
+            
+        if verbose: print("Saving data\n")
+        with open(out_path, "wb") as f: pickle.dump(models, f)
         
 def main() -> None: 
     
     factor_model = FactorModel()
-    #factor_model.linear_spot_fred_models()
-    #factor_model.logit_spot_fred_models()
+    factor_model.linear_spot_fred_models()
+    factor_model.logit_spot_fred_models()
     factor_model.inflation_measure_factor()
+    factor_model.inflation_signal_factor()
+    factor_model.raw_zscore_port_trend_exposure()
     
 if __name__ == "__main__": main()

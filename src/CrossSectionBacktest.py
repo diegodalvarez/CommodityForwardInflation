@@ -17,120 +17,98 @@ class CrossSectionBacktest:
     
     def __init__(self) -> None:
         
-        self.energy_tickers = ["CL", "CO", "HO", "NG", "QS", "XB"]
-        self.inf_tickers    = ["BCMPGBIF", "BCMPUSIF"]
-        self.data_path      = os.path.join(os.getcwd(), "CrossSectionalBacktests")
+        self.src_path   = os.getcwd()
+        self.repo_path  = os.path.abspath(os.path.join(self.src_path, ".."))
+        self.data_path  = os.path.join(self.repo_path, "data")
+        self.cross_path = os.path.join(self.data_path, "CrossSectional")
         
-        if os.path.exists(self.data_path) == False: os.makedirs(self.data_path)
+        if not os.path.exists(self.cross_path):
+            os.makedirs(self.cross_path)
+            
+        self.q = 2
+            
+    def _get_leg(self, df: pd.DataFrame, q: int = 2) -> pd.DataFrame:
         
-    def _get_inf(self, path: str) -> pd.DataFrame:
+        df_out = (df
+                .pivot(index = "security", columns = "date", values = "lag_resid")
+                .apply(lambda x: pd.qcut(x = x, q = q, labels = ["LowerGroup", "UpperGroup"]))
+                .reset_index()
+                .melt(id_vars = "security", value_name = "group"))
         
-        inf_paths = [os.path.join(path, ticker + ".parquet") for ticker in self.inf_tickers]
-        df_inf    = (pd.read_parquet(
-            path = inf_paths, engine = "pyarrow").
-            assign(country = lambda x: np.where(x.security.str.split(" ").str[0] == "BCMPGBIF", "UK", "US")))
-        
-        return df_inf
-    
-    def _get_fut(self, fut_path: str) -> None:
-                
-        fut_paths  = [os.path.join(fut_path, ticker + ".parquet") for ticker in self.energy_tickers]
-        df_fut_rtn = (pd.read_parquet(
-            path = fut_paths, engine = "pyarrow").
-            assign(security = lambda x: x.security.str.split(" ").str[0]).
-            pivot(index = "date", columns = "security", values = "PX_LAST").
-            pct_change().
-            reset_index().
-            melt(id_vars = "date", value_name = "fut_rtn").
-            dropna())
-        
-        return df_fut_rtn
-    
-    def _get_is_resid(self, df: pd.DataFrame) -> pd.DataFrame: 
-    
-        df_out = (sm.OLS(
-            endog = df.fut_rtn,
-            exog  = sm.add_constant(df.inf_surp)).
-            fit().
-            resid.
-            to_frame(name = "resid").
-            assign(lag_resid = lambda x: x.resid.shift()).
-            merge(right = df, how = "inner", on = ["date"]))
-    
         return df_out
-    
-    def _get_leg(self, df: pd.DataFrame) -> pd.DataFrame: 
-    
-        try:
         
-            df_out = (df.assign(
-                group = lambda x: pd.qcut(x = x.resid, q = 2, labels = ["lower_group", "upper_group"])))
-    
-            return df_out
-    
-        except:
-            pass
-
-    
-    def get_is_resid(self, inf_path: str, fut_path: str, verbose: bool = True) -> pd.DataFrame: 
+    def get_residual_legs(self, verbose: bool = True) -> None: 
         
-        out_path = os.path.join(self.data_path, "InSampleResid.parquet")
-        if os.path.exists(out_path) == True: 
-            if verbose: print("Already have in-sample Resid Saved")
+        if verbose: 
+            print("Getting Cross-Sectional Residual Backtest")
+        
+        resid_path = os.path.join(self.data_path, "Backtests", "OLSResidualBacktest.parquet")
+        rtn_path   = os.path.join(self.data_path, "FutData", "VolHedgedRtn.parquet")
+        out_path   = os.path.join(self.data_path, "Backtests", "CrossectionaLOLSResidual.parquet")
+        
+        if os.path.exists(out_path):
+            if verbose: print("Already have data\n")
             return None
         
-        if verbose: print("Generating In-Sample Resids")
+        df_raw = (pd
+                .read_parquet(path = resid_path, engine = "pyarrow")
+                .drop(columns = ["resid", "signal_rtn", "vol_rtn", "name", "group"])
+            .assign(group_var = lambda x: 
+                    x.target + " " +  
+                    x.regression + " " + 
+                    x.sample_group + " " + 
+                    x.country + " " + 
+                    x.signal_name))
         
-        df_inf_prep =  (self._get_inf(
-            inf_path).pivot(
-            index = "date", columns = "country", values = "value").
-            diff().
-            shift().
-            reset_index().
-            melt(id_vars = "date", value_name = "inf_surp").
-            dropna())
-                
-        df_fut_rtn = self._get_fut(fut_path)
-                
-        df_resid = (df_inf_prep.merge(
-            right = df_fut_rtn, how = "inner", on = ["date"]).
-            assign(group_var = lambda x: x.country + " " + x.security).
-            set_index("date").
-            groupby("group_var").
-            apply(self._get_is_resid, include_groups = False).
-            reset_index().
-            dropna().
-            assign(resid_group = "is_resid"))
-    
-        if verbose: print("Saving Data\n")
-        df_resid.to_parquet(path = out_path, engine = "pyarrow")
+        df_date_selector = (df_raw
+                .drop(columns = [
+                    "sample_group", "regression", "fut_rtn", "target", 
+                    "lag_resid", "group_var"])
+                .drop_duplicates()
+                .groupby(["date", "country", "signal_name"])
+                .agg("count")
+                .reset_index()
+                .loc[lambda x: x.security >= 4]
+                .drop(columns = ["security"]))
         
-    def get_is_leg(self, verbose: bool = True) -> pd.DataFrame: 
+        df_namer = (df_raw
+                [[
+                    "group_var", "target", "regression", "sample_group", 
+                    "country", "signal_name"]]
+                .drop_duplicates())
         
-        out_path = os.path.join(self.data_path, "InSampleGroup.parquet")
-        if os.path.exists(out_path) == True: 
-            if verbose: print("Already have in-sample Group Saved")
-            return None
+        df_rtn = (pd
+                .read_parquet(path = rtn_path, engine = "pyarrow")
+                .assign(
+                    lagged  = lambda x: x.weight * x.rtn,
+                    perfect = lambda x: x.lag_weight * x.rtn)
+                [["date", "security", "lagged", "perfect"]]
+                .melt(
+                    id_vars    = ["date", "security"],
+                    var_name   = "target",
+                    value_name = "rtn")
+                .assign(date = lambda x: pd.to_datetime(x.date)))
         
-        if verbose: print("Generating In-Sample Resids")
+        df_out = (df_raw
+                .merge(
+                    right = df_date_selector, 
+                    how   = "inner", 
+                    on    = df_date_selector.columns.to_list())
+                #.loc[lambda x: x.group_var == x.group_var.min()]
+                .groupby("group_var")
+                .apply(self._get_leg, self.q)
+                .reset_index()
+                .merge(right = df_namer, how = "inner", on = ["group_var"])
+                .drop(columns = ["group_var", "level_1"])
+                .assign(date = lambda x: pd.to_datetime(x.date))
+                .merge(right = df_rtn, how = "inner", on = ["date", "security", "target"]))
         
-        in_path  = os.path.join(self.data_path, "InSampleResid.parquet")
-        df_out   = (pd.read_parquet(
-            path = in_path, engine = "pyarrow").
-            drop(columns = ["group_var"]).
-            dropna().
-            assign(group_var = lambda x: x.date.astype(str) + " " + x.country).
-            groupby("group_var").
-            progress_apply(lambda group: self._get_leg(group)).
-            reset_index())
-        
-        if verbose == True: print("Saving data\n")
+        if verbose: print("Saving data")
         df_out.to_parquet(path = out_path, engine = "pyarrow")
         
+def main() -> None: 
 
-inf_path = r"A:\BBGData\data"
-fut_path = r"A:\BBGFuturesManager_backup_backup\data\PXFront"
-
-backtest  = CrossSectionBacktest()
-#backtest.get_is_resid(inf_path, fut_path)
-backtest.get_is_leg()
+    cross_backtest  = CrossSectionBacktest()
+    cross_backtest.get_residual_legs()
+    
+if __name__ == "__main__":main()

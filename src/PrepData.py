@@ -180,7 +180,7 @@ class PrepData:
         df_out = (df
                 .sort_values("date")
                 .assign(
-                    weight     = lambda x: vol_target / (x.rtn.ewm(span = vol_window, adjust = False).std()),
+                    weight     = lambda x: vol_target / (x.rtn.ewm(span = vol_window, adjust = False).std() * np.sqrt(252)),
                     lag_weight = lambda x: x.weight.shift()))
         
         return df_out
